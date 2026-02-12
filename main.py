@@ -70,26 +70,24 @@ class JinaEmbeddings:
         return self.embed_documents([text])[0]
 
 if __name__ == "__main__":
-    pages = extract_pdf_text_by_page(PDF_PATH)
-    chunks = chunk_pages(pages)
-
-    docs = [
-        Document(
-            page_content=c["text"],
-            metadata={"page": c["page"], "chunk_id": c["chunk_id"]}
-        )
-        for c in chunks
-    ]
-
-    print("Docs to store:", len(docs))
+    from langchain_community.vectorstores import Chroma
 
     embeddings = JinaEmbeddings(JINA_API_KEY)
 
-    vectordb = Chroma.from_documents(
-        documents=docs,
-        embedding=embeddings,
-        persist_directory=CHROMA_DIR
+    # Load existing DB instead of rebuilding
+    vectordb = Chroma(
+        persist_directory=CHROMA_DIR,
+        embedding_function=embeddings
     )
 
-    vectordb.persist()
-    print("✅ Stored embeddings in:", CHROMA_DIR)
+    query = "What are the rules about parking and stopping?"
+    results = vectordb.similarity_search(query, k=3)
+
+    print("\n🔎 Query:", query)
+    print("\nTop 3 Retrieved Chunks:\n")
+
+    for i, doc in enumerate(results):
+        print(f"Result {i+1}")
+        print("Page:", doc.metadata["page"])
+        print(doc.page_content[:500])
+        print("-" * 50)

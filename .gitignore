@@ -8,3 +8,5 @@ wheels/
 assgn_doc/
 # Virtual environments
 .venv
+.env
+data/chroma_db
