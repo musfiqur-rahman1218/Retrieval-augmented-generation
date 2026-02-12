@@ -1,0 +1,11 @@
+langchain
+langchain-community
+langchain-core
+pymupdf
+pypdf
+chromadb
+openai
+python-dotenv
+requests
+langchain-openai
+langchain-text-splitters

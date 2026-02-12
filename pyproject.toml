@@ -1,0 +1,19 @@
+[project]
+name = "rag-assignment"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "chromadb>=1.5.0",
+    "langchain>=1.2.10",
+    "langchain-community>=0.4.1",
+    "langchain-core>=1.2.11",
+    "langchain-openai>=1.1.9",
+    "langchain-text-splitters>=1.1.0",
+    "openai>=2.20.0",
+    "pymupdf>=1.27.1",
+    "pypdf>=6.7.0",
+    "python-dotenv>=1.2.1",
+    "requests>=2.32.5",
+]
