@@ -9,4 +9,6 @@ assgn_doc/
 # Virtual environments
 .venv
 .env
+.env.example    
 data/chroma_db
+.gitignore
