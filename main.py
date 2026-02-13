@@ -1,50 +1,20 @@
 import os
-import fitz  # PyMuPDF
+import fitz
 import requests
 from dotenv import load_dotenv
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from langchain_core.documents import Document
 from langchain_community.vectorstores import Chroma
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-PDF_PATH = "data\DH-Chapter2 (1).pdf"
-CHROMA_DIR = "data\chroma_db"  # will be created locally
+from openai import OpenAI
+
+PDF_PATH = "data\DH-Chapter2(1).pdf"
+CHROMA_DIR = "data\chroma_db"
 
 load_dotenv()
 JINA_API_KEY = os.getenv("JINA_API_KEY")
-
-def extract_pdf_text_by_page(pdf_path: str) -> list[dict]:
-    doc = fitz.open(pdf_path)
-    pages = []
-
-    for i in range(doc.page_count):
-        page = doc.load_page(i)
-        text = page.get_text("text")
-
-        if len(text.strip()) < 200:
-            blocks = page.get_text("blocks")
-            text = " ".join((b[4] for b in blocks if isinstance(b[4], str)))
-
-        text = " ".join(text.split())
-        pages.append({"page": i + 1, "text": text})
-
-    doc.close()
-    return pages
-
-def chunk_pages(pages: list[dict]) -> list[dict]:
-    splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
-    chunks = []
-
-    for p in pages:
-        if not p["text"]:
-            continue
-        split_texts = splitter.split_text(p["text"])
-        for idx, t in enumerate(split_texts):
-            # skip useless tiny chunks (like just headings)
-            if len(t.strip()) < 80:
-                continue
-            chunks.append({"page": p["page"], "chunk_id": idx, "text": t})
-
-    return chunks
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # --- Jina Embeddings wrapper (simple) ---
 class JinaEmbeddings:
@@ -69,25 +39,82 @@ class JinaEmbeddings:
     def embed_query(self, text: str) -> list[float]:
         return self.embed_documents([text])[0]
 
-if __name__ == "__main__":
-    from langchain_community.vectorstores import Chroma
+def build_context(docs: list[Document]) -> str:
+    """Join retrieved chunks into a single context string with page markers."""
+    parts = []
+    for d in docs:
+        page = d.metadata.get("page", "?")
+        parts.append(f"[Page {page}] {d.page_content}")
+    return "\n\n".join(parts)
 
+def generate_answer(question: str, context: str) -> str:
+    if not OPENAI_API_KEY:
+        raise ValueError("Missing OPENAI_API_KEY. Put it in a .env file.")
+
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    prompt = f"""
+You are a helpful assistant. Answer the user's question ONLY using the provided context.
+If the answer is not in the context, say: "I can't find that in Chapter 2."
+
+Context:
+{context}
+
+Question:
+{question}
+
+Answer in a clear, short way.
+"""
+
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You answer strictly from the given context."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+    )
+
+    return resp.choices[0].message.content.strip()
+
+if __name__ == "__main__":
     embeddings = JinaEmbeddings(JINA_API_KEY)
 
-    # Load existing DB instead of rebuilding
     vectordb = Chroma(
         persist_directory=CHROMA_DIR,
         embedding_function=embeddings
     )
 
-    query = "What are the rules about parking and stopping?"
-    results = vectordb.similarity_search(query, k=3)
+    print("\n✅ RAG is ready. Type a question (or type 'exit' to quit).\n")
 
-    print("\n🔎 Query:", query)
-    print("\nTop 3 Retrieved Chunks:\n")
+while True:
+    question = input("You: ").strip()
+    if not question:
+        continue
+    if question.lower() in {"exit", "quit"}:
+        print("Bye 👋")
+        break
 
-    for i, doc in enumerate(results):
-        print(f"Result {i+1}")
-        print("Page:", doc.metadata["page"])
-        print(doc.page_content[:500])
-        print("-" * 50)
+    retrieved = vectordb.max_marginal_relevance_search(
+    question,
+    k=6,          # how many chunks you finally use
+    fetch_k=20    # how many it considers first
+)
+
+    # Optional: de-dup similar results (helps avoid repeats)
+    seen = set()
+    unique = []
+    for d in retrieved:
+        key = (d.metadata.get("page"), d.page_content[:120])
+        if key not in seen:
+            seen.add(key)
+            unique.append(d)
+
+    context = build_context(unique)
+    answer = generate_answer(question, context)
+
+    pages = sorted({d.metadata.get("page") for d in unique})
+
+    print("\nAssistant:\n", answer)
+    print("\nSources (pages):", pages)
+    print("\n" + "-" * 60 + "\n")
